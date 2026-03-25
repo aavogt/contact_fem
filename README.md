@@ -9,9 +9,6 @@ Work in progress plane strain contact problem.
     Uncross.py   unused
 
 # bugs
-## ObjectsFem.makeMeshNetgen
-
-This might fix the next one:
 
 ## toponaming issue
 

@@ -153,7 +153,7 @@ mat = ObjectsFem.makeMaterialSolid(doc)
 mat.Material = {'Author': 'Uwe Stöhr', 'AuthorAndLicense': 'CC-BY-3.0', 'CardName': 'PLA-Generic', 'Density': '1.24e-06 kg/mm^3', 'Description': 'Polylactic acid or polylactide (PLA, Poly) is a biodegradable thermoplastic aliphatic polyester derived from renewable resources, such as corn starch, tapioca roots, chips, starch or sugarcane.', 'Father': 'Thermoplast', 'License': 'CC-BY-3.0', 'Name': 'PLA-Generic', 'PoissonRatio': '0.36', 'ProductURL': 'https://en.wikipedia.org/wiki/Polylactic_acid', 'ReferenceSource': '', 'SourceURL': 'https://www.sd3d.com/wp-content/uploads/2017/06/MaterialTDS-PLA_01.pdf', 'SpecificHeat': '1.8e+09 mm^2/(s^2*K)', 'ThermalConductivity': '130 mm*kg/(s^3*K)', 'ThermalExpansionCoefficient': '4.1e-05 1/K', 'UltimateTensileStrength': '26400 kg/(mm*s^2)', 'YieldStrength': '35900 kg/(mm*s^2)', 'YoungsModulus': '3.64e+06 kg/(mm*s^2)'}
 
 solver = ObjectsFem.makeSolverCalculiXCcxTools(doc)
-solver.ModelSpace = u"plane strain"
+# solver.ModelSpace = u"plane strain" # faster but no longer needed
 solver.GeometricalNonlinearity = True
 solver.SplitInputWriter = False
 solver.AnalysisType = 0
@@ -168,6 +168,7 @@ doc.Analysis.addObject(doc.rightSymmetry)
 doc.Analysis.addObject(doc.bottomDown)
 doc.Analysis.addObject(doc.topFixed)
 doc.Analysis.addObject(solver)
+doc.recompute()
 
 fea = ccx.FemToolsCcx(doc.Analysis, solver)
 fea.update_objects()
