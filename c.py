@@ -4,6 +4,7 @@ from FreeCAD import Vector
 import numpy as np
 from types import SimpleNamespace
 import os
+import subprocess
 
 import sys
 sys.path += ["."]
@@ -79,7 +80,7 @@ SketchSvg.add(p, doc.tongue_sketch, """
     h -E
     v F
     H 0
-    V 1
+    V N/2
     z
 """, "tongue.pdf")
 #
@@ -96,7 +97,7 @@ SketchSvg.add(p, doc.groove_sketch, """
     h -E
     v F+2*H
     H 0
-    V 2*N+M-1
+    V 2*N+M-N/2
     z
 """, "groove.pdf")
 
@@ -104,7 +105,7 @@ ensure("Part::Compound", "Compound")
 doc.Compound.Links = [doc.tongue_solid,doc.groove_solid,]
 doc.FileName = fcstdpath
 
-for n in "Contact Contact001 ConstraintFixed ConstraintDisplacement ConstraintRigidBody SolverCcxTools".split():
+for n in "MaterialSolid rightSymmetry MeshNetgen Contact Contact001 topFixed bottomDown SolverCcxTools Analysis".split():
     try:
         doc.removeObject(n)
     except:
@@ -114,18 +115,27 @@ for n in "Contact Contact001 ConstraintFixed ConstraintDisplacement ConstraintRi
     except:
         pass
 
-ObjectsFem.makeConstraintFixed(doc, "ConstraintFixed")
-doc.ConstraintFixed.References = [(doc.groove_pad, ("Face1",))]
-ObjectsFem.makeConstraintDisplacement(doc, "ConstraintDisplacement")
-doc.ConstraintDisplacement.References = [(doc.tongue_pad, ("Face1",))]
-doc.ConstraintDisplacement.yFree = False
-doc.ConstraintDisplacement.yDisplacement = f"-{ydisp} mm"
+ObjectsFem.makeAnalysis(doc)
+mesh = ObjectsFem.makeMeshNetgenLegacy(doc)
+mesh.Shape = doc.Compound
+mesh.Fineness = "Fine"
+mesh.SecondOrder = False
+mesh.MaxSize = 3
+doc.Analysis.addObject(mesh)
 
-ObjectsFem.makeConstraintRigidBody(doc, "ConstraintRigidBody")
-doc.ConstraintRigidBody.References = [(doc.tongue_pad, ("Face10",)),(doc.groove_pad, ("Face10",)) ]
-doc.ConstraintRigidBody.TranslationalModeX = "Constraint"
+ObjectsFem.makeConstraintFixed(doc, "topFixed")
+doc.topFixed.References = [(doc.groove_pad, ("Face1",))]
 
-# tongue_pad:Face10 groove_pad:Face10 constrained x=0mm
+ObjectsFem.makeConstraintDisplacement(doc, "bottomDown")
+doc.bottomDown.References = [(doc.tongue_pad, ("Face1",))]
+doc.bottomDown.yFree = False
+doc.bottomDown.yDisplacement = f"-{ydisp} mm"
+
+ObjectsFem.makeConstraintDisplacement(doc, "rightSymmetry")
+doc.rightSymmetry.References = [(doc.tongue_pad, ("Face10",)),(doc.groove_pad, ("Face10",)) ]
+doc.rightSymmetry.xFree = False
+doc.rightSymmetry.xDisplacement = "0 mm"
+
 for n in "Contact Contact001".split():
     o = ObjectsFem.makeConstraintContact(doc, n)
     o.Slope = "1000.0 GPa/m"
@@ -139,19 +149,24 @@ for n in "Contact Contact001".split():
 doc.Contact.References = [(doc.tongue_pad,"Face7"), (doc.groove_pad,"Face7")]
 doc.Contact001.References = [(doc.tongue_pad, ("Face4", )), (doc.tongue_pad, ("Face4", ))]
 
-doc.Analysis.addObject(doc.ConstraintDisplacement)
-doc.Analysis.addObject(doc.ConstraintFixed)
-doc.Analysis.addObject(doc.ConstraintRigidBody)
+mat = ObjectsFem.makeMaterialSolid(doc)
+mat.Material = {'Author': 'Uwe Stöhr', 'AuthorAndLicense': 'CC-BY-3.0', 'CardName': 'PLA-Generic', 'Density': '1.24e-06 kg/mm^3', 'Description': 'Polylactic acid or polylactide (PLA, Poly) is a biodegradable thermoplastic aliphatic polyester derived from renewable resources, such as corn starch, tapioca roots, chips, starch or sugarcane.', 'Father': 'Thermoplast', 'License': 'CC-BY-3.0', 'Name': 'PLA-Generic', 'PoissonRatio': '0.36', 'ProductURL': 'https://en.wikipedia.org/wiki/Polylactic_acid', 'ReferenceSource': '', 'SourceURL': 'https://www.sd3d.com/wp-content/uploads/2017/06/MaterialTDS-PLA_01.pdf', 'SpecificHeat': '1.8e+09 mm^2/(s^2*K)', 'ThermalConductivity': '130 mm*kg/(s^3*K)', 'ThermalExpansionCoefficient': '4.1e-05 1/K', 'UltimateTensileStrength': '26400 kg/(mm*s^2)', 'YieldStrength': '35900 kg/(mm*s^2)', 'YoungsModulus': '3.64e+06 kg/(mm*s^2)'}
 
-# can't yet replace FEM_MeshNetgenFromShape
-# mesh = ObjectsFem.makeMeshNetgen()
-# mesh.Shape = doc.Compound
-# mesh.Fineness = "Fine"
-# doc.Analysis.addObject(mesh)
 solver = ObjectsFem.makeSolverCalculiXCcxTools(doc)
 solver.ModelSpace = u"plane strain"
 solver.GeometricalNonlinearity = True
-solver.SplitInputWriter = True
+solver.SplitInputWriter = False
+solver.AnalysisType = 0
+solver.ThermoMechSteadyState = True
+solver.IterationsControlParameterTimeUse = False
+solver.MatrixSolverType = 3
+solver.BeamShellResultOutput3D = False
+solver.MaterialNonlinearity = False
+
+doc.Analysis.addObject(mat)
+doc.Analysis.addObject(doc.rightSymmetry)
+doc.Analysis.addObject(doc.bottomDown)
+doc.Analysis.addObject(doc.topFixed)
 doc.Analysis.addObject(solver)
 
 fea = ccx.FemToolsCcx(doc.Analysis, solver)
@@ -159,7 +174,6 @@ fea.update_objects()
 fea.setup_working_dir()
 fea.setup_ccx()
 fea.write_inp_file()
-import subprocess
 
 ## set displacement
 def set_disp(newydisp):
