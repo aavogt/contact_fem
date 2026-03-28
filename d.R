@@ -10,20 +10,21 @@ library(tidyverse)
 
 # %%
 runfem <- \(p_overrides_rhs = "A=12") {
-  tmp <- tempdir()
+  tmp <- tempfile()
   pwd <- getwd()
   system2("/bin/bash", c("-c", glue("
     ulimit -v 1000000
     set -m
+    mkdir {tmp}
     cd {tmp}
     cp {pwd}/SketchSvg.py .
     P_OVERRIDES='{p_overrides_rhs}' freecad --console < {pwd}/c.py
     cd {pwd}")))
 
   csvfile <- glue("{tmp}/output.csv")
-  # if (!file.exists(csvfile)) setNames(
   result <- read_csv(csvfile)
-  # unlink(tmp, recursive = TRUE)
+  # keep {groove,tongue}.{svg,pdf} and include them on plots?
+  unlink(tmp, recursive = TRUE)
   result
 }
 # %%
