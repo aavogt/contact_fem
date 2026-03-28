@@ -1,14 +1,41 @@
+# %%
 # library(hetGP)
 # not sure about hetGP here because ccx is deterministic
+# library(targets)
+library(lhs)
 library(nloptr)
+library(glue)
+library(tictoc)
+library(tidyverse)
 
-# tmp=`mktemp -d`
-# cp c.py b.FCStd $tmp
-# cd $tmp
-# ulimit -v 1000000
-# set -m
-# P_OVERRIDES='A=3 B=6' freecad --console < c.py
-#
+# %%
+runfem <- \(p_overrides_rhs = "A=12") {
+  tmp <- tempdir()
+  pwd <- getwd()
+  system2("/bin/bash", c("-c", glue("
+    ulimit -v 1000000
+    set -m
+    cd {tmp}
+    cp {pwd}/SketchSvg.py .
+    P_OVERRIDES='{p_overrides_rhs}' freecad --console < {pwd}/c.py
+    cd {pwd}")))
+
+  csvfile <- glue("{tmp}/output.csv")
+  # if (!file.exists(csvfile)) setNames(
+  result <- read_csv(csvfile)
+  # unlink(tmp, recursive = TRUE)
+  result
+}
+# %%
+
+tic()
+result1 <- runfem()
+toc() # 8 seconds
+
+print(result1)
+# %%
+
+
 # W=40, M=30, N=20, L=60
 # B=8,
 # C=4,
@@ -20,7 +47,9 @@ library(nloptr)
 # ydisp_min = 0.21,
 # ydisp_max = 0.6,
 # nydisp = 4,
-#
-# which ones at first? 
-#
-# read_csv('output.csv')
+words <- \(string) strsplit(string, " ")[[1]]
+varnames <- words("A B C D E F depth")
+# stop("TODO")
+varmin <- as.numeric(words("8 "))
+varmax <- as.numeric(words("12 "))
+unscaledDesign <- geneticLHS(100, length(varnames))

@@ -115,6 +115,9 @@ for n in "MaterialSolid rightSymmetry MeshNetgen Contact Contact001 topFixed bot
     except:
         pass
 
+doc.recompute()
+doc.save()
+
 ObjectsFem.makeAnalysis(doc)
 mesh = ObjectsFem.makeMeshNetgenLegacy(doc)
 mesh.Shape = doc.Compound
@@ -169,6 +172,7 @@ doc.Analysis.addObject(doc.bottomDown)
 doc.Analysis.addObject(doc.topFixed)
 doc.Analysis.addObject(solver)
 doc.recompute()
+doc.save()
 
 fea = ccx.FemToolsCcx(doc.Analysis, solver)
 fea.update_objects()
@@ -181,7 +185,7 @@ def set_disp(newydisp):
     # is this worth it?
     # I'm having trouble running these in parallel
     # but they are inherently sequential and the caller should just make b1 b2 b3 dirs and run c.py in each with different parameters
-    cmd = f"nvim --clean --headless +'/^ConstraintDisplacement' +'normal zO$T,C{newydisp}' +wq b/SolverCcxTools/FEMMeshNetgen.inp"
+    cmd = f"nvim --clean --headless +'/^bottomDown' +'normal zO$T,C{-newydisp}' +wq b/SolverCcxTools/MeshNetgen.inp"
     subprocess.run(cmd, shell=True, text=True)
     print(cmd)
 
@@ -191,7 +195,7 @@ def step():
     fea.load_results()
     results = doc.getObject("CCX_Results")
     maxvm = float(max(results.vonMises))
-    row = [ydisp, maxvm] + [ float(component) for component in subprocess.run("grep -A2 CONSTRAINTFIXED b/SolverCcxTools/FEMMeshNetgen.dat", shell=True, text=True, capture_output=True).stdout.split()[-3:] ]
+    row = [ydisp, maxvm] + [ float(component) for component in subprocess.run("grep -A2 TOPFIXED b/SolverCcxTools/MeshNetgen.dat", shell=True, text=True, capture_output=True).stdout.split()[-3:] ]
     if not os.path.exists("output.csv"):
         with open('output.csv', mode='w') as csvfile:
             pheader = ",".join(p.keys())
