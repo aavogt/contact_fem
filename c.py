@@ -5,6 +5,7 @@ import numpy as np
 from types import SimpleNamespace
 import os
 import subprocess
+import sqlite3
 
 import sys
 sys.path += ["."]
@@ -36,6 +37,66 @@ if raw:
         if key not in p:
             print(f"Warning: P_OVERRIDES key '{key}' has no default and is being added")
         p[key] = float(val)
+
+def init_db(db_path="db.sqlite"):
+    conn = sqlite3.connect(db_path, timeout=10)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL")
+    p_cols = ", ".join([f"{k} REAL" for k in p.keys()])
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS p (
+            p_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {p_cols},
+            tongue_svg BLOB,
+            groove_svg BLOB
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS q (
+            p_id INTEGER NOT NULL,
+            ydisp REAL NOT NULL,
+            maxvm REAL NOT NULL,
+            fx REAL NOT NULL,
+            fy REAL NOT NULL,
+            fz REAL NOT NULL,
+            FOREIGN KEY (p_id) REFERENCES p(p_id) ON DELETE CASCADE
+        )
+    """)
+    conn.commit()
+    return conn
+
+def insert_p(conn):
+    cols = ", ".join(p.keys())
+    placeholders = ", ".join(["?"] * len(p))
+    values = [float(v) for v in p.values()]
+    conn.execute(f"INSERT INTO p ({cols}) VALUES ({placeholders})", values)
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+def _read_blob(path):
+    with open(path, "rb") as f:
+        return sqlite3.Binary(f.read())
+
+def update_p_blobs(conn, p_id, tongue_svg, groove_svg):
+    conn.execute(
+        """
+        UPDATE p
+        SET tongue_svg = ?, groove_svg = ?
+        WHERE p_id = ?
+        """,
+        (tongue_svg, groove_svg, p_id),
+    )
+    conn.commit()
+
+def insert_q(conn, p_id, ydisp, maxvm, fx, fy, fz):
+    conn.execute(
+        "INSERT INTO q (p_id, ydisp, maxvm, fx, fy, fz) VALUES (?, ?, ?, ?, ?, ?)",
+        (p_id, ydisp, maxvm, fx, fy, fz),
+    )
+    conn.commit()
+
+conn = init_db(os.environ.get("DB", "db.sqlite3"))
+p_id = insert_p(conn)
 
 fcstdpath = 'b.FCStd'
 if os.path.exists(fcstdpath):
@@ -82,7 +143,7 @@ SketchSvg.add(p, doc.tongue_sketch, """
     H 0
     V N/2
     z
-""", "tongue.pdf")
+""", "tongue.svg")
 #
 doc.groove_sketch.deleteAllGeometry()
 doc.groove_sketch.deleteAllConstraints()
@@ -99,7 +160,14 @@ SketchSvg.add(p, doc.groove_sketch, """
     H 0
     V 2*N+M-N/2
     z
-""", "groove.pdf")
+""", "groove.svg")
+
+update_p_blobs(
+    conn,
+    p_id,
+    _read_blob("tongue.svg"),
+    _read_blob("groove.svg"),
+)
 
 ensure("Part::Compound", "Compound")
 doc.Compound.Links = [doc.tongue_solid,doc.groove_solid,]
@@ -156,15 +224,15 @@ mat = ObjectsFem.makeMaterialSolid(doc)
 mat.Material = {'Author': 'Uwe Stöhr', 'AuthorAndLicense': 'CC-BY-3.0', 'CardName': 'PLA-Generic', 'Density': '1.24e-06 kg/mm^3', 'Description': 'Polylactic acid or polylactide (PLA, Poly) is a biodegradable thermoplastic aliphatic polyester derived from renewable resources, such as corn starch, tapioca roots, chips, starch or sugarcane.', 'Father': 'Thermoplast', 'License': 'CC-BY-3.0', 'Name': 'PLA-Generic', 'PoissonRatio': '0.36', 'ProductURL': 'https://en.wikipedia.org/wiki/Polylactic_acid', 'ReferenceSource': '', 'SourceURL': 'https://www.sd3d.com/wp-content/uploads/2017/06/MaterialTDS-PLA_01.pdf', 'SpecificHeat': '1.8e+09 mm^2/(s^2*K)', 'ThermalConductivity': '130 mm*kg/(s^3*K)', 'ThermalExpansionCoefficient': '4.1e-05 1/K', 'UltimateTensileStrength': '26400 kg/(mm*s^2)', 'YieldStrength': '35900 kg/(mm*s^2)', 'YoungsModulus': '3.64e+06 kg/(mm*s^2)'}
 
 solver = ObjectsFem.makeSolverCalculiXCcxTools(doc)
-# solver.ModelSpace = u"plane strain" # faster but no longer needed
+solver.ModelSpace = u"plane strain" # faster but no longer needed
 solver.GeometricalNonlinearity = True
 solver.SplitInputWriter = False
 solver.AnalysisType = 0
-solver.ThermoMechSteadyState = True
-solver.IterationsControlParameterTimeUse = False
-solver.MatrixSolverType = 3
-solver.BeamShellResultOutput3D = False
-solver.MaterialNonlinearity = False
+#solver.ThermoMechSteadyState = True
+#solver.IterationsControlParameterTimeUse = False
+#solver.MatrixSolverType = 3
+#solver.BeamShellResultOutput3D = False
+#solver.MaterialNonlinearity = False
 
 doc.Analysis.addObject(mat)
 doc.Analysis.addObject(doc.rightSymmetry)
@@ -189,29 +257,24 @@ def set_disp(newydisp):
     subprocess.run(cmd, shell=True, text=True)
     print(cmd)
 
-def step():
-    fea.purge_results()
-    fea.ccx_run()
-    fea.load_results()
-    results = doc.getObject("CCX_Results")
-    maxvm = float(max(results.vonMises))
-    row = [ydisp, maxvm] + [ float(component) for component in subprocess.run("grep -A2 TOPFIXED b/SolverCcxTools/MeshNetgen.dat", shell=True, text=True, capture_output=True).stdout.split()[-3:] ]
-    if not os.path.exists("output.csv"):
-        with open('output.csv', mode='w') as csvfile:
-            pheader = ",".join(p.keys())
-            csvfile.write(f"ydisp,maxvm,fx,fy,fz,{pheader}\n")
-            csvfile.close()
-    with open('output.csv', mode='a') as csvfile:
-        csvfile.write(",".join(map(str, row) ))
-        for v in p.values():
-            csvfile.write("," + str(v))
-        csvfile.write("\n")
-
-
 for ydisp in np.linspace(p["ydisp_min"],p["ydisp_max"], int(p["nydisp"])):
     try:
         set_disp(ydisp)
-        step()
+        fea.purge_results()
+        fea.ccx_run()
+        fea.load_results()
+        results = doc.getObject("CCX_Results")
+        maxvm = float(max(results.vonMises))
+        fx, fy, fz = [
+            float(component)
+            for component in subprocess.run(
+                "grep -A2 TOPFIXED b/SolverCcxTools/MeshNetgen.dat",
+                shell=True,
+                text=True,
+                capture_output=True,
+            ).stdout.split()[-3:]
+        ]
+        insert_q(conn, p_id, ydisp, maxvm, fx, fy, fz)
         print(f"Success with ydisp={ydisp}")
     except Exception as e:
         print(f"Failed with ydisp={ydisp}")
