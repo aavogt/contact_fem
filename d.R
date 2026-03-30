@@ -2,23 +2,24 @@
 # library(hetGP)
 # not sure about hetGP here because ccx is deterministic
 # library(targets)
+library(furrr)
+library(glue)
 library(lhs)
 library(nloptr)
-library(glue)
+library(processx)
+library(R.cache)
 library(tictoc)
 library(tidyverse)
-library(furrr)
-library(R.cache)
-library(processx)
 plan("multisession", workers = 8)
 # %%
 runfem <- \(p_overrides_rhs = "A=12") tryCatch(
   {
-    tmp  <- tempfile()
-    pwd  <- getwd()
+    tmp <- tempfile()
+    pwd <- getwd()
     dbfile <- glue("{pwd}/db.sqlite3")
     p <- process$new(
-      "/bin/bash", args = c("-c", glue("
+      "/bin/bash",
+      args = c("-c", glue("
         echo running {p_overrides_rhs} in {tmp}
         mkdir {tmp}
         cd {tmp}
@@ -32,7 +33,10 @@ runfem <- \(p_overrides_rhs = "A=12") tryCatch(
     unlink(tmp, recursive = TRUE)
     p$get_exit_status() == 0
   },
-  error = \(err) { print(err); FALSE }
+  error = \(err) {
+    print(err)
+    FALSE
+  }
 )
 # %%
 
