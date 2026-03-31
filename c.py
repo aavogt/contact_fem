@@ -2,7 +2,6 @@
 import FreeCAD, Part, ObjectsFem, femmesh.gmshtools, femtools.ccxtools as ccx
 from FreeCAD import Vector
 import numpy as np
-from types import SimpleNamespace
 import os
 import subprocess
 import sqlite3
@@ -28,7 +27,7 @@ p = dict(
 )
 ydisp = 0.4 # initial value replaced by set_ydisp() before actually running
 
-
+# P_OVERRIDES="A=3,B=3;C=4 D=5" freecad --console < c.py
 raw = os.environ.get("P_OVERRIDES", "")
 if raw:
     import re
@@ -38,12 +37,13 @@ if raw:
             print(f"Warning: P_OVERRIDES key '{key}' has no default and is being added")
         p[key] = float(val)
 
-def init_db(db_path="db.sqlite"):
+def init_db():
+    db_path = os.environ.get("DB", "db.sqlite3")
     conn = sqlite3.connect(db_path, timeout=10)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode=WAL")
+    _= conn.execute("PRAGMA foreign_keys = ON")
+    _= conn.execute("PRAGMA journal_mode=WAL")
     p_cols = ", ".join([f"{k} REAL" for k in p.keys()])
-    conn.execute(f"""
+    _ = conn.execute(f"""
         CREATE TABLE IF NOT EXISTS p (
             p_id INTEGER PRIMARY KEY AUTOINCREMENT,
             {p_cols},
@@ -51,7 +51,7 @@ def init_db(db_path="db.sqlite"):
             groove_svg BLOB
         )
     """)
-    conn.execute("""
+    _= conn.execute("""
         CREATE TABLE IF NOT EXISTS q (
             p_id INTEGER NOT NULL,
             ydisp REAL NOT NULL,
@@ -65,20 +65,29 @@ def init_db(db_path="db.sqlite"):
     conn.commit()
     return conn
 
-def insert_p(conn):
+conn = init_db()
+
+def insert_p():
+    global conn
     cols = ", ".join(p.keys())
     placeholders = ", ".join(["?"] * len(p))
     values = [float(v) for v in p.values()]
-    conn.execute(f"INSERT INTO p ({cols}) VALUES ({placeholders})", values)
+    _ = conn.execute(f"INSERT INTO p ({cols}) VALUES ({placeholders})", values)
     conn.commit()
     return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+p_id = insert_p()
+with open("p_id", "w") as f:
+    _ = f.write(str(p_id) + '\n')
+    f.close()
 
 def _read_blob(path):
     with open(path, "rb") as f:
         return sqlite3.Binary(f.read())
 
-def update_p_blobs(conn, p_id, tongue_svg, groove_svg):
-    conn.execute(
+def update_p_blobs(tongue_svg, groove_svg):
+    global conn, p_id
+    _= conn.execute(
         """
         UPDATE p
         SET tongue_svg = ?, groove_svg = ?
@@ -87,16 +96,6 @@ def update_p_blobs(conn, p_id, tongue_svg, groove_svg):
         (tongue_svg, groove_svg, p_id),
     )
     conn.commit()
-
-def insert_q(conn, p_id, ydisp, maxvm, fx, fy, fz):
-    conn.execute(
-        "INSERT INTO q (p_id, ydisp, maxvm, fx, fy, fz) VALUES (?, ?, ?, ?, ?, ?)",
-        (p_id, ydisp, maxvm, fx, fy, fz),
-    )
-    conn.commit()
-
-conn = init_db(os.environ.get("DB", "db.sqlite3"))
-p_id = insert_p(conn)
 
 fcstdpath = 'b.FCStd'
 if os.path.exists(fcstdpath):
@@ -163,8 +162,6 @@ SketchSvg.add(p, doc.groove_sketch, """
 """, "groove.svg")
 
 update_p_blobs(
-    conn,
-    p_id,
     _read_blob("tongue.svg"),
     _read_blob("groove.svg"),
 )
@@ -274,7 +271,11 @@ for ydisp in np.linspace(p["ydisp_min"],p["ydisp_max"], int(p["nydisp"])):
                 capture_output=True,
             ).stdout.split()[-3:]
         ]
-        insert_q(conn, p_id, ydisp, maxvm, fx, fy, fz)
+        _= conn.execute(
+            "INSERT INTO q (p_id, ydisp, maxvm, fx, fy, fz) VALUES (?, ?, ?, ?, ?, ?)",
+            (p_id, ydisp, maxvm, fx, fy, fz),
+        )
+        conn.commit()
         print(f"Success with ydisp={ydisp}")
     except Exception as e:
         print(f"Failed with ydisp={ydisp}")
