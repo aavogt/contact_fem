@@ -1,9 +1,8 @@
 # Tongue & Groove parametric optimization
 
-Work in progress plane strain contact problem. 
+Plane strain contact problem. See https://aavogt.github.io/blog/posts/2026-03-30-contact.html
 
-    c.py         update/generate b.FCStd and output.csv
-    b.FCStd
-    d.R          calls c.py, read output.csv, TODO hetGP or nloptr::cobyla
-    SketchSvg.py
-    Uncross.py   unused
+    c.py          update/generate ./b.FCStd writes ./p_id and ./db.sqlite3
+    d.R           run c.py, read db.sqlite3 generate plots 
+    SketchSvg.py  turn svg-like syntax into freecad sketches
+    Uncross.py    unused
