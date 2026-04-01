@@ -4,8 +4,6 @@ import ast
 import operator as _op
 import FreeCAD
 import Part
-# import Uncross
-# Uncross can take multiple passes, so add will have to accumulate
 
 ## usage:
 ##
