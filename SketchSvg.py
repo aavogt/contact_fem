@@ -212,22 +212,9 @@ def _parse_numbers(raw, vals):
             i += 1
             continue
 
-        # At top level, whitespace may separate expressions.
-        # Keep whitespace inside current token only when clearly internal.
+        # Ignore top-level whitespace so expressions are not split by spaces.
         if ch.isspace() and depth == 0:
-            j = i
-            while j < n and s[j].isspace():
-                j += 1
-
-            # If next non-space starts a signed/new value and current token
-            # already has content, split here.
-            if j < n and s[j] in '+-' and cur:
-                flush()
-                i = j
-                continue
-
-            # Otherwise just skip top-level whitespace.
-            i = j
+            i += 1
             continue
 
         cur.append(ch)
