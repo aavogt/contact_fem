@@ -2,6 +2,7 @@ import os
 import re
 import ast
 import operator as _op
+import math
 import FreeCAD
 import Part
 
@@ -17,7 +18,7 @@ import Part
 ## saved to output.pdf and output.svg
 ##
 ## https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/d
-## but it only supports MmLlHhVvZz commands. Reminder:
+## but it only supports MmLlHhVvZzAa commands. Reminder:
 ## - lowercase is relative
 ## - uppercase is absolute
 ## - m moves without drawing
@@ -53,7 +54,9 @@ def add(vals, sketch, path_str, export=None):
             continue
 
         op = st[i]
-        if op not in "MmLlHhVvZz":
+        if op == "#":
+            continue
+        if op not in "MmLlHhVvZzAa":
             raise ValueError(f"Unknown SVG path command in statement: {st!r}")
 
         raw = st[i + 1:].strip()
@@ -137,6 +140,23 @@ def add(vals, sketch, path_str, export=None):
                 y2 = y + dy
                 _seg(sketch, x, y, x, y2)
                 y = y2
+
+        elif op == 'a':
+            if len(nums) < 7 or len(nums) % 7 != 0:
+                raise ValueError(f"'a' requires one or more 7-number arc sets: {st!r}")
+            for j in range(0, len(nums), 7):
+                rx, ry, angle, large_arc, sweep, dx, dy = nums[j:j + 7]
+                x2, y2 = x + dx, y + dy
+                _arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                x, y = x2, y2
+
+        elif op == 'A':
+            if len(nums) < 7 or len(nums) % 7 != 0:
+                raise ValueError(f"'A' requires one or more 7-number arc sets: {st!r}")
+            for j in range(0, len(nums), 7):
+                rx, ry, angle, large_arc, sweep, x2, y2 = nums[j:j + 7]
+                _arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                x, y = x2, y2
 
     if export is not None:
         _svg_handle.write(svgtail)
@@ -268,24 +288,109 @@ def _safe_eval_expr(expr, vars_map):
     return _eval(tree)
 
 
-def _seg(sk, x1, y1, x2, y2):
+def _update_bounds(x, y):
     global _xmin, _xmax, _ymin, _ymax
+    if _xmin is None:
+        _xmin = _xmax = x
+        _ymin = _ymax = y
+    else:
+        _xmin = min(_xmin, x)
+        _xmax = max(_xmax, x)
+        _ymin = min(_ymin, y)
+        _ymax = max(_ymax, y)
+
+def _seg(sk, x1, y1, x2, y2):
     if _svg_handle is not None:
         _svg_handle.write(f"\nM {x1},{y1}\nL {x2},{y2}")
-        if _xmin is None:
-            _xmin = min(x1,x2)
-            _xmax = max(x1,x2)
-            _ymin = min(y1,y2)
-            _ymax = max(y1,y2)
-        else:
-            _xmin = min(x1, x2, _xmin)
-            _ymin = min(y1, y2, _ymin)
-            _xmax= max(x1, x2, _xmax)
-            _ymax = max(y1, y2, _ymax)
-    sk.addGeometry(Part.LineSegment(
-        FreeCAD.Vector(x1, y1, 0),
-        FreeCAD.Vector(x2, y2, 0)
-    ))
+        _update_bounds(x1, y1)
+        _update_bounds(x2, y2)
+    if (x1 != x2 or y1 != y2):
+        sk.addGeometry(Part.LineSegment(
+            FreeCAD.Vector(x1, y1, 0),
+            FreeCAD.Vector(x2, y2, 0)
+        ))
+
+def _arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc, sweep):
+    if rx == 0 or ry == 0:
+        _seg(sk, x1, y1, x2, y2)
+        return
+
+    rx = abs(rx)
+    ry = abs(ry)
+    phi = math.radians(angle_deg % 360.0)
+    cos_phi = math.cos(phi)
+    sin_phi = math.sin(phi)
+
+    dx2 = (x1 - x2) / 2.0
+    dy2 = (y1 - y2) / 2.0
+    x1p = cos_phi * dx2 + sin_phi * dy2
+    y1p = -sin_phi * dx2 + cos_phi * dy2
+
+    rx2 = rx * rx
+    ry2 = ry * ry
+    x1p2 = x1p * x1p
+    y1p2 = y1p * y1p
+
+    lam = x1p2 / rx2 + y1p2 / ry2
+    if lam > 1.0:
+        scale = math.sqrt(lam)
+        rx *= scale
+        ry *= scale
+        rx2 = rx * rx
+        ry2 = ry * ry
+
+    sign = -1.0 if bool(large_arc) == bool(sweep) else 1.0
+    num = rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2
+    denom = rx2 * y1p2 + ry2 * x1p2
+    if denom == 0:
+        _seg(sk, x1, y1, x2, y2)
+        return
+
+    coef = sign * math.sqrt(max(0.0, num / denom))
+    cxp = coef * (rx * y1p / ry)
+    cyp = coef * (-ry * x1p / rx)
+
+    cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2.0
+    cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2.0
+
+    ux = (x1p - cxp) / rx
+    uy = (y1p - cyp) / ry
+    vx = (-x1p - cxp) / rx
+    vy = (-y1p - cyp) / ry
+
+    start_angle = _vector_angle(1.0, 0.0, ux, uy)
+    delta_angle = _vector_angle(ux, uy, vx, vy)
+
+    if not sweep and delta_angle > 0:
+        delta_angle -= 2.0 * math.pi
+    elif sweep and delta_angle < 0:
+        delta_angle += 2.0 * math.pi
+
+    end_angle = start_angle + delta_angle
+
+    if _svg_handle is not None:
+        _svg_handle.write(
+            f"\nM {x1},{y1}\nA {rx},{ry} {angle_deg} {int(bool(large_arc))},{int(bool(sweep))} {x2},{y2}"
+        )
+        _update_bounds(x1, y1)
+        _update_bounds(x2, y2)
+        _update_bounds(cx + rx, cy)
+        _update_bounds(cx - rx, cy)
+        _update_bounds(cx, cy + ry)
+        _update_bounds(cx, cy - ry)
+
+    ellipse = Part.Ellipse(FreeCAD.Vector(cx, cy, 0), rx, ry)
+    if angle_deg:
+        ellipse.rotate( FreeCAD.Base.Placement(FreeCAD.Vector(cx, cy, 0),  FreeCAD.Vector(0, 0, 1), angle_deg))
+    arc = Part.ArcOfEllipse(ellipse, start_angle, end_angle)
+    sk.addGeometry(arc)
+
+
+def _vector_angle(ux, uy, vx, vy):
+    dot = ux * vx + uy * vy
+    det = ux * vy - uy * vx
+    return math.atan2(det, dot)
+
 
 _svg_handle = None
 
