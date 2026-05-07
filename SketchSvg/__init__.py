@@ -1,6 +1,8 @@
 import os
 import re
 
+import Sketcher
+
 from .Expr import *
 from . import Stroke
 
@@ -38,6 +40,39 @@ def add(vals, sketch, path_str, export=None):
 
     x = y = 0.0
     start = (x, y)
+    last_geom = None
+    last_end = None
+    path_start_geom = None
+    path_start_end = None
+
+    def _track_segment(geom):
+        nonlocal last_geom, last_end, path_start_geom, path_start_end
+        if geom is None:
+            return
+        if last_geom is not None and last_end is not None:
+            sketch.addConstraint(
+                Sketcher.Constraint("Coincident", last_geom, last_end, geom, 1)
+            )
+        if path_start_geom is None:
+            path_start_geom = geom
+            path_start_end = 1
+        last_geom = geom
+        last_end = 2
+
+    def _track_close(geom):
+        nonlocal last_geom, last_end, path_start_geom, path_start_end
+        if geom is None:
+            return
+        if last_geom is not None and last_end is not None:
+            sketch.addConstraint(
+                Sketcher.Constraint("Coincident", last_geom, last_end, geom, 1)
+            )
+        if path_start_geom is not None and path_start_end is not None:
+            sketch.addConstraint(
+                Sketcher.Constraint("Coincident", path_start_geom, path_start_end, geom, 2)
+            )
+        last_geom = geom
+        last_end = 2
 
     # Split only on ';' or newline. Command is first non-space char in each stmt.
     statements = [st.strip() for st in re.split(r'[;\n]+', path_str) if st.strip()]
@@ -59,7 +94,8 @@ def add(vals, sketch, path_str, export=None):
         raw = st[i + 1:].strip()
 
         if op in "Zz":
-            Stroke.seg(sketch, x, y, *start)
+            geom = Stroke.seg(sketch, x, y, *start)
+            _track_close(geom)
             x, y = start
             continue
 
@@ -70,12 +106,17 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'M' requires at least 2 numbers: {st!r}")
             x, y = nums[0], nums[1]
             start = (x, y)
+            last_geom = None
+            last_end = None
+            path_start_geom = None
+            path_start_end = None
             # extra pairs behave like implicit absolute L
             if (len(nums) - 2) % 2 != 0:
                 raise ValueError(f"'M' extra arguments must be pairs: {st!r}")
             for j in range(2, len(nums), 2):
                 x2, y2 = nums[j], nums[j + 1]
-                Stroke.seg(sketch, x, y, x2, y2)
+                geom = Stroke.seg(sketch, x, y, x2, y2)
+                _track_segment(geom)
                 x, y = x2, y2
 
         elif op == 'm':
@@ -84,12 +125,17 @@ def add(vals, sketch, path_str, export=None):
             x += nums[0]
             y += nums[1]
             start = (x, y)
+            last_geom = None
+            last_end = None
+            path_start_geom = None
+            path_start_end = None
             # extra pairs behave like implicit relative l
             if (len(nums) - 2) % 2 != 0:
                 raise ValueError(f"'m' extra arguments must be pairs: {st!r}")
             for j in range(2, len(nums), 2):
                 x2, y2 = x + nums[j], y + nums[j + 1]
-                Stroke.seg(sketch, x, y, x2, y2)
+                geom = Stroke.seg(sketch, x, y, x2, y2)
+                _track_segment(geom)
                 x, y = x2, y2
 
         elif op == 'L':
@@ -97,7 +143,8 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'L' requires one or more coordinate pairs: {st!r}")
             for j in range(0, len(nums), 2):
                 x2, y2 = nums[j], nums[j + 1]
-                Stroke.seg(sketch, x, y, x2, y2)
+                geom = Stroke.seg(sketch, x, y, x2, y2)
+                _track_segment(geom)
                 x, y = x2, y2
 
         elif op == 'l':
@@ -105,14 +152,16 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'l' requires one or more coordinate pairs: {st!r}")
             for j in range(0, len(nums), 2):
                 x2, y2 = x + nums[j], y + nums[j + 1]
-                Stroke.seg(sketch, x, y, x2, y2)
+                geom = Stroke.seg(sketch, x, y, x2, y2)
+                _track_segment(geom)
                 x, y = x2, y2
 
         elif op == 'H':
             if len(nums) < 1:
                 raise ValueError(f"'H' requires one or more numbers: {st!r}")
             for x2 in nums:
-                Stroke.seg(sketch, x, y, x2, y)
+                geom = Stroke.seg(sketch, x, y, x2, y)
+                _track_segment(geom)
                 x = x2
 
         elif op == 'h':
@@ -120,7 +169,8 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'h' requires one or more numbers: {st!r}")
             for dx in nums:
                 x2 = x + dx
-                Stroke.seg(sketch, x, y, x2, y)
+                geom = Stroke.seg(sketch, x, y, x2, y)
+                _track_segment(geom)
                 x = x2
 
         elif op == 'v':
@@ -128,14 +178,16 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'v' requires one or more numbers: {st!r}")
             for dy in nums:
                 y2 = y + dy
-                Stroke.seg(sketch, x, y, x, y2)
+                geom = Stroke.seg(sketch, x, y, x, y2)
+                _track_segment(geom)
                 y = y2
 
         elif op == 'V':
             if len(nums) < 1:
                 raise ValueError(f"'V' requires one or more numbers: {st!r}")
             for y2 in nums:
-                Stroke.seg(sketch, x, y, x, y2)
+                geom = Stroke.seg(sketch, x, y, x, y2)
+                _track_segment(geom)
                 y = y2
 
         elif op == 'a':
@@ -144,7 +196,8 @@ def add(vals, sketch, path_str, export=None):
             for j in range(0, len(nums), 7):
                 rx, ry, angle, large_arc, sweep, dx, dy = nums[j:j + 7]
                 x2, y2 = x + dx, y + dy
-                Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                _track_segment(geom)
                 x, y = x2, y2
 
         elif op == 'A':
@@ -152,7 +205,8 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'A' requires one or more 7-number arc sets: {st!r}")
             for j in range(0, len(nums), 7):
                 rx, ry, angle, large_arc, sweep, x2, y2 = nums[j:j + 7]
-                Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                _track_segment(geom)
                 x, y = x2, y2
 
     if export is not None:
