@@ -51,13 +51,13 @@ def add(vals, sketch, path_str, export=None):
             return
         if last_geom is not None and last_end is not None:
             sketch.addConstraint(
-                Sketcher.Constraint("Coincident", last_geom, last_end, geom, 1)
+                Sketcher.Constraint("Coincident", last_geom, last_end, geom[0], geom[1])
             )
         if path_start_geom is None:
-            path_start_geom = geom
-            path_start_end = 1
-        last_geom = geom
-        last_end = 2
+            path_start_geom = geom[0]
+            path_start_end = geom[1]
+        last_geom = geom[0]
+        last_end = geom[2]
 
     def _track_close(geom):
         nonlocal last_geom, last_end, path_start_geom, path_start_end
@@ -65,14 +65,14 @@ def add(vals, sketch, path_str, export=None):
             return
         if last_geom is not None and last_end is not None:
             sketch.addConstraint(
-                Sketcher.Constraint("Coincident", last_geom, last_end, geom, 1)
+                Sketcher.Constraint("Coincident", last_geom, last_end, geom[0], geom[1])
             )
         if path_start_geom is not None and path_start_end is not None:
             sketch.addConstraint(
-                Sketcher.Constraint("Coincident", path_start_geom, path_start_end, geom, 2)
+                Sketcher.Constraint("Coincident", path_start_geom, path_start_end, geom[0], geom[2])
             )
-        last_geom = geom
-        last_end = 2
+        last_geom = geom[0]
+        last_end = geom[2]
 
     # Split only on ';' or newline. Command is first non-space char in each stmt.
     statements = [st.strip() for st in re.split(r'[;\n]+', path_str) if st.strip()]
@@ -196,7 +196,7 @@ def add(vals, sketch, path_str, export=None):
             for j in range(0, len(nums), 7):
                 rx, ry, angle, large_arc, sweep, dx, dy = nums[j:j + 7]
                 x2, y2 = x + dx, y + dy
-                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, bool(large_arc), bool(sweep))
                 _track_segment(geom)
                 x, y = x2, y2
 
@@ -205,7 +205,7 @@ def add(vals, sketch, path_str, export=None):
                 raise ValueError(f"'A' requires one or more 7-number arc sets: {st!r}")
             for j in range(0, len(nums), 7):
                 rx, ry, angle, large_arc, sweep, x2, y2 = nums[j:j + 7]
-                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, int(large_arc), int(sweep))
+                geom = Stroke.arc(sketch, x, y, x2, y2, rx, ry, angle, bool(large_arc), bool(sweep))
                 _track_segment(geom)
                 x, y = x2, y2
 

@@ -15,17 +15,17 @@ def seg(sk, x1, y1, x2, y2):
         _update_bounds(x1, y1)
         _update_bounds(x2, y2)
     if (x1 != x2 or y1 != y2):
-        return sk.addGeometry(
+        geom = sk.addGeometry(
             Part.LineSegment(
                 FreeCAD.Vector(x1, y1, 0),
                 FreeCAD.Vector(x2, y2, 0)
             ),
             False
         )
+        return (geom, 1, 2)
     return None
 
-def arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc, sweep):
-    geom_sweep = 0 if sweep else 1
+def arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc: bool, sweep: bool):
     if rx == 0 or ry == 0:
         return seg(sk, x1, y1, x2, y2)
 
@@ -53,7 +53,7 @@ def arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc, sweep):
         rx2 = rx * rx
         ry2 = ry * ry
 
-    sign = -1.0 if bool(large_arc) == bool(geom_sweep) else 1.0
+    sign = -1.0 if bool(large_arc) == bool(sweep) else 1.0
     num = rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2
     denom = rx2 * y1p2 + ry2 * x1p2
     if denom == 0:
@@ -74,16 +74,16 @@ def arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc, sweep):
     start_angle = _vector_angle(1.0, 0.0, ux, uy)
     delta_angle = _vector_angle(ux, uy, vx, vy)
 
-    if not geom_sweep and delta_angle > 0:
+    if not sweep and delta_angle > 0:
         delta_angle -= 2.0 * math.pi
-    elif geom_sweep and delta_angle < 0:
+    elif sweep and delta_angle < 0:
         delta_angle += 2.0 * math.pi
 
     end_angle = start_angle + delta_angle
 
     if svg_handle is not None:
         svg_handle.write(
-            f"\nM {x1},{y1}\nA {rx},{ry} {angle_deg} {int(bool(large_arc))},{int(bool(sweep))} {x2},{y2}"
+            f"\nM {x1},{y1}\nA {rx},{ry} {angle_deg} {int(large_arc)},{int(sweep)} {x2},{y2}"
         )
         _update_bounds(x1, y1)
         _update_bounds(x2, y2)
@@ -95,8 +95,12 @@ def arc(sk, x1, y1, x2, y2, rx, ry, angle_deg, large_arc, sweep):
     ellipse = Part.Ellipse(FreeCAD.Vector(cx, cy, 0), rx, ry)
     if angle_deg:
         ellipse.rotate( FreeCAD.Base.Placement(FreeCAD.Vector(cx, cy, 0),  FreeCAD.Vector(0, 0, 1), angle_deg))
-    arc = Part.ArcOfEllipse(ellipse, start_angle, end_angle)
-    return sk.addGeometry(arc, False)
+
+    if sweep:
+        start_angle, end_angle = end_angle, start_angle
+    arc = Part.ArcOfEllipse(ellipse, start_angle, end_angle, not sweep)
+    geom = sk.addGeometry(arc, False)
+    return (geom, 2 if sweep else 1, 1 if sweep else 2)
 
 
 def _vector_angle(ux, uy, vx, vy):
