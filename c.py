@@ -9,7 +9,7 @@
 # where contact pressure is below a threshold
 #
 # ./tube3/SolverCcxTools/msp.py
-# parses frd
+# parses frd ascii
 # networkx's dijkstra on the node graph with 1/contact pressure weights
 # three stages to make sure the two half paths go around the tube
 # will be improved by
@@ -34,6 +34,24 @@ import sys
 sys.path += ["."]
 import SketchSvg
 
+def config_beside():
+    # seems to have no effect on FRD files
+    # -e '/<FCBool Name="BinaryOutput" Value="0"/ s/0/1/' \
+    cmd = r"""sed -i -e '/<FCBool Name="UseTempDirectory" Value="1"/ s/1/0/' \
+                     -e '/<FCBool Name="UseBesideDirectory" Value="0"/ s/0/1/' \
+                     -e '/<FCBool Name="UseCustomDirectory" Value="1"/ s/1/0/' \
+                     -e '/<FCBool Name="SplitInputWriter" Value="0"/ s/0/1/' \
+                     $HOME/.config/FreeCAD/user.cfg"""
+    subprocess.run(cmd, shell=True, text=True)
+
+config_beside()
+# and then restore the config?
+# try-finally demands indenting everything, or two files
+# and SIGINT/SIGTERM has to be done separately
+# solver.WorkingDirectory = os.getcwd()
+# solver.SplitInputWriter = True
+# or maybe the config is copied somewhere
+
 # ── Parameters ────────────────────────────────────────────────────────────────
 p = dict(
     ID=1.5, OD=3.0, # tubing dimensions in xy plane
@@ -42,7 +60,7 @@ p = dict(
     nmaxilla = 2,  # fixed teeth high y
     odgap=0.5, # the tooth touches the tube along three lines if odgap=0,
                # otherwise this makes the tooth wider (x axis)
-    tiegap=0.01, # tube is split into utube and ttube
+    tiegap=1e-2, # tube is split into utube and ttube
     tooth_pitch = 5, # teeth on a jaw start every tooth_pitch mm in z
     oman = 2.5,      # +z offset for mandible teeth
     tooth_width = 2, # tooth z dimension
@@ -170,8 +188,12 @@ doc.ttube_sketch.deleteAllConstraints()
 SketchSvg.add(p, doc.ttube_sketch, """
     M OD/2,0
     A OD/2,OD/2,180,0,0,-OD/2,0
-    H -ID/2
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
     A ID/2,ID/2,180,0,1,ID/2,0
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
     z
 """, "ttube.svg")
 
@@ -183,8 +205,12 @@ doc.utube_sketch.deleteAllConstraints()
 SketchSvg.add(p, doc.utube_sketch, """
     M OD/2,0
     A OD/2,OD/2,180,0,1,-OD/2,0
-    H -ID/2
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
     A ID/2,ID/2,180,0,0,ID/2,0
+    h (OD/2-ID/2)/3
+    h (OD/2-ID/2)/3
     z
 """, "utube.svg")
 
@@ -254,7 +280,7 @@ for obj in booleanFragments.ViewObject.Proxy.claimChildren():
 
 doc.recompute()
 doc.save()
-update_p_blobs( _read_blob("tongue.svg"), _read_blob("groove.svg"),)
+# update_p_blobs( _read_blob("tongue.svg"), _read_blob("groove.svg"),)
 
 
 ncontact = max(3 * 2 * 3,3*(p['nmaxilla'] + p['nmandible']))
@@ -275,14 +301,15 @@ mesh = ObjectsFem.makeMeshNetgenLegacy(doc)
 mesh.Shape = doc.BooleanFragments
 mesh.Fineness = "VeryCoarse"
 mesh.SecondOrder = False
-mesh.MaxSize = 0.5
+mesh.MaxSize = 5
+mesh.MinSize = 1
 doc.Analysis.addObject(mesh)
 
 ObjectsFem.makeConstraintTie(doc, "tie1")
-doc.tie1.References = [(doc.utube_pad, ("Face1", )),(doc.ttube_pad, ("Face1", ))]
+doc.tie1.References = [(doc.utube_pad, ("Face2", )),(doc.ttube_pad, ("Face2", ))]
 doc.tie1.Tolerance = p['tiegap']*1.1
 ObjectsFem.makeConstraintTie(doc, "tie2")
-doc.tie2.References = [(doc.utube_pad, ("Face2", )),(doc.ttube_pad, ("Face2", ))]
+doc.tie2.References = [(doc.utube_pad, ("Face8", )),(doc.ttube_pad, ("Face8", ))]
 doc.tie2.Tolerance = p['tiegap']*1.1
 
 # max{i}_pad.Face6 fixed
@@ -290,7 +317,7 @@ ObjectsFem.makeConstraintFixed(doc, "maxFixed")
 doc.maxFixed.References = [(doc.getObject(f"max{i}_pad"), ("Face6",)) for i in range(p['nmaxilla'])]
 
 ObjectsFem.makeConstraintFixed(doc, "tubeEnds")
-doc.tubeEnds.References = [ (doc.utube_pad, ('Face6',)), (doc.ttube_pad, ('Face6',))] # , (doc.utube_pad, ('Face5',)), (doc.ttube_pad, ('Face6',)), ]
+doc.tubeEnds.References = [ (doc.utube_pad, ('Face10',)), (doc.ttube_pad, ('Face10',))]
 
 # man{i}_pad.Face6 goes to +y
 ObjectsFem.makeConstraintDisplacement(doc, "manUpY")
@@ -303,23 +330,6 @@ doc.manUpY.yDisplacement = f"1.5 mm"
 from collections import deque
 import itertools
 
-# contact faces:
-# tube face 1, 2 top and bottom
-# tube face 3, 4 inside
-# tube face 5 low z
-# tube face 6 high z
-#
-# max{i} face 1,2,3 contact tube 1 for i in range(p['nmandible'])
-# man{i} face 1,2,3 contact tube 2, i in range(p['nmaxilla'])
-#
-# after tube split int ttube and utube:
-# tube 1 -> t 1
-# tube 2 -> u 1
-# tube 3 -> t 3
-# tube 4 -> u 3
-# tube 5 -> t 5 u 5
-# tube 6 -> t 6 u 6
-
 def contactPairsMandible(j):
     return ([ (doc.utube_pad, ("Face1",)), (doc.getObject(f"man{i}_pad"), (f"Face{j}",)) ] for i in range(p['nmandible']))
 
@@ -329,12 +339,15 @@ def contactPairsMaxilla(j):
 def contactPairsMMj(j) :
     return itertools.chain(contactPairsMandible(j), contactPairsMaxilla(j))
 
-contactPairs= deque(row for j in [1, 2, 3] for row in contactPairsMMj(j))
-contactPairs.append([ (doc.ttube_pad, ("Face3", )), (doc.utube_pad, ("Face3", ))])
-for n in [ f"Contact{i:03d}" for i in range(1, 3*(p['nmaxilla'] + p['nmandible']) + 1) ]:
+contactPairsUTTube = ([ (doc.ttube_pad, (f"Face{j}",)), (doc.utube_pad, (f"Face{j}",)) ] for j in [4,5,6])
+
+contactPairs= deque(itertools.chain((row for j in [1, 2, 3] for row in contactPairsMMj(j)), contactPairsUTTube))
+# 3,4,5
+for n in [ f"Contact{i:03d}" for i in range(1, len(contactPairs)+1) ]:
     o = ObjectsFem.makeConstraintContact(doc, n)
-    o.Slope = "100000.0 GPa/m"
-    o.Adjust = p['tiegap']
+    # o.SurfaceBehavior = "Hard"
+    o.Slope = "10000.0 GPa/m"
+    o.Adjust = p['tiegap']*2
     o.Friction = False
     o.FrictionCoefficient = 0.500000
     o.StickSlope = "10000.0 GPa/m"
