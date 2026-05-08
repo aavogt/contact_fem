@@ -1,20 +1,5 @@
 #!/bin/bash
-dir1=b/SolverCcxTools
-dir2=b/SolverCalculiX
-# Find the modification times of the latest .frd file in each directory
-mtime1=$(find "$dir1" -maxdepth 1 -name "*.frd" -printf "%T+ " | sort | tail -n 1)
-mtime2=$(find "$dir2" -maxdepth 1 -name "*.frd" -printf "%T+ " | sort | tail -n 1)
-
-echo mtimes $mtime1 $mtime2
-
-# Compare the modification times
-if [[ "$mtime1" > "$mtime2" ]]; then
-    echo "cd $dir1 # it has the newer .frd file."
-    cd "$dir1" || echo "Failed to change into directory 1."
-fi
-
-echo "cd $dir2 # it has the newer .frd file."
-cd "$dir2" || echo "Failed to change into directory 2."
+cd b/SolverCalculiX
 
 # Focus the window
 old=`xdotool getactivewindow`

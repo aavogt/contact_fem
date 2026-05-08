@@ -284,7 +284,7 @@ doc.save()
 
 
 ncontact = max(3 * 2 * 3,3*(p['nmaxilla'] + p['nmandible']))
-for n in "maxFixed manUpY tubeEnds MaterialSolid MaterialSolid001 MeshNetgen Contact SolverCcxTools Analysis tie1 tie2".split() + [
+for n in "maxFixed manUpY tubeEnds MaterialSolid MaterialSolid001 MeshNetgen Contact WarpVector ccx_dat_file CCX_Results_Mesh SolverCalculiX CCX_Results Pipeline_CCX_Results Analysis tie1 tie2".split() + [
         f"Contact{i:03d}" for i in range(ncontact) ]:
     try:
         doc.removeObject(n)
@@ -361,13 +361,12 @@ mat1 = ObjectsFem.makeMaterialSolid(doc)
 mat1.Material = {'Author': 'Uwe Stöhr', 'AuthorAndLicense': 'CC-BY-3.0', 'CardName': 'PLA-Generic', 'Density': '1.24e-06 kg/mm^3', 'Description': 'Polylactic acid or polylactide (PLA, Poly) is a biodegradable thermoplastic aliphatic polyester derived from renewable resources, such as corn starch, tapioca roots, chips, starch or sugarcane.', 'Father': 'Thermoplast', 'License': 'CC-BY-3.0', 'Name': 'PLA-Generic', 'PoissonRatio': '0.36', 'ProductURL': 'https://en.wikipedia.org/wiki/Polylactic_acid', 'ReferenceSource': '', 'SourceURL': 'https://www.sd3d.com/wp-content/uploads/2017/06/MaterialTDS-PLA_01.pdf', 'SpecificHeat': '1.8e+09 mm^2/(s^2*K)', 'ThermalConductivity': '130 mm*kg/(s^3*K)', 'ThermalExpansionCoefficient': '4.1e-05 1/K', 'UltimateTensileStrength': '26400 kg/(mm*s^2)', 'YieldStrength': '35900 kg/(mm*s^2)', 'YoungsModulus': '3.64e+06 kg/(mm*s^2)'}
 mat1.References = [ doc.ttube_pad, doc.utube_pad ]
 
-solver = ObjectsFem.makeSolverCalculiXCcxTools(doc)
+solver = ObjectsFem.makeSolverCalculiX(doc, "SolverCalculiX")
 solver.GeometricalNonlinearity = True
 solver.SplitInputWriter = True
 solver.AnalysisType = 0
 solver.MaterialNonlinearity = True
 solver.DisplaceMesh = False # True?
-
 doc.Analysis.addObject(mat)
 doc.Analysis.addObject(mat1)
 doc.Analysis.addObject(doc.manUpY)
@@ -408,7 +407,7 @@ def set_material():
     print(cmd)
 
 def set_disp(newydisp):
-    cmd = rf"sed 's/^\(manUpY,2,2,\).*/\1{newydisp}/' -i b/SolverCcxTools/MeshNetgen.inp"
+    cmd = rf"sed 's/^\(manUpY,2,2,\).*/\1{newydisp}/' -i b/SolverCalculiX/MeshNetgen.inp"
     subprocess.run(cmd, shell=True, text=True)
     print(cmd)
 
@@ -425,7 +424,7 @@ for ydisp in np.linspace(p["ydisp_min"],p["ydisp_max"], int(p["nydisp"])):
         fx, fy, fz = [
             float(component)
             for component in subprocess.run(
-                "grep -A2 MANUPY b/SolverCcxTools/MeshNetgen.dat",
+                "grep -A2 MANUPY b/SolverCalculiX/MeshNetgen.dat",
                 shell=True,
                 text=True,
                 capture_output=True,
