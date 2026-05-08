@@ -440,5 +440,9 @@ for ydisp in np.linspace(p["ydisp_min"],p["ydisp_max"], int(p["nydisp"])):
         print(f"Failed with ydisp={ydisp}")
         break
 
+booleanFragments.Visibility = False
+doc.CCX_Results_Mesh.Visibility = False # has no effect
+doc.MeshNetgen.Visibility = False
+doc.Compound.Visibility = False
 doc.recompute()
 doc.save()
